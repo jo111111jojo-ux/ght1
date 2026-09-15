@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>AI Valley Open World</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#b7d8ee;font-family:Inter,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#fff}
+    canvas{display:block}
+    #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+    .panel{position:absolute;background:rgba(14,22,32,.72);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.15);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.18)}
+    #brand{left:20px;top:18px;padding:13px 16px;min-width:220px}
+    #brand b{font-size:17px;letter-spacing:.04em}#brand small{display:block;margin-top:4px;opacity:.72}
+    #quest{right:20px;top:18px;width:min(330px,calc(100vw - 40px));padding:14px 16px}
+    #quest h3{margin:0 0 8px;font-size:15px}#quest p{margin:0;line-height:1.55;font-size:13px;opacity:.88}
+    #hint{left:50%;bottom:26px;transform:translateX(-50%);padding:10px 14px;font-size:13px;opacity:0;transition:.2s;white-space:nowrap}
+    #crosshair{position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px;border-radius:50%;background:rgba(255,255,255,.9);box-shadow:0 0 0 3px rgba(0,0,0,.15)}
+    #start{position:fixed;inset:0;z-index:30;display:grid;place-items:center;background:linear-gradient(rgba(56,95,120,.28),rgba(32,56,72,.72));backdrop-filter:blur(5px)}
+    #start .card{width:min(540px,calc(100vw - 36px));padding:26px;border-radius:24px;background:rgba(16,28,39,.82);border:1px solid rgba(255,255,255,.2);box-shadow:0 28px 70px rgba(0,0,0,.28)}
+    #start h1{margin:0 0 8px;font-size:28px}#start p{opacity:.82;line-height:1.7;margin:0 0 18px}
+    button{pointer-events:auto;border:0;border-radius:12px;padding:12px 18px;font-weight:700;cursor:pointer;background:#fff;color:#17202a;font-size:15px}
+    .keys{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 20px}.key{padding:7px 10px;border-radius:9px;background:rgba(255,255,255,.1);font-size:12px}
+    #mobile{display:none;position:absolute;inset:0;pointer-events:none}
+    #stick{pointer-events:auto;position:absolute;left:20px;bottom:28px;width:116px;height:116px;border-radius:50%;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.2)}
+    #nub{position:absolute;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.55);left:34px;top:34px}
+    #jumpBtn,#runBtn,#useBtn{pointer-events:auto;position:absolute;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.25);font-size:12px;font-weight:700}
+    #jumpBtn{right:24px;bottom:30px}#runBtn{right:98px;bottom:78px}#useBtn{right:22px;bottom:106px}
+    @media(max-width:800px){#brand{left:12px;top:12px;min-width:0}#brand small{display:none}#quest{right:12px;top:82px;width:220px}#mobile{display:block}.desktop-only{display:none}}
+  </style>
+</head>
+<body>
+<div id="start">
+  <div class="card">
+    <h1>AI Valley · 开放世界原型</h1>
+    <p>真实 3D 小镇第一版：山谷、湖泊、道路、住宅、咖啡馆、公园、花草树木与 3D NPC。进入后可以自由探索并完成一个小任务。</p>
+    <div class="keys"><span class="key">WASD 移动</span><span class="key">鼠标 环视</span><span class="key">Shift 冲刺</span><span class="key">Space 跳跃</span><span class="key">E 交互</span></div>
+    <button id="enter">进入世界</button>
+  </div>
+</div>
+<div id="hud">
+  <div id="brand" class="panel"><b>AI VALLEY</b><small>Prototype · living 3D world</small></div>
+  <div id="quest" class="panel"><h3>当前任务</h3><p id="questText">去咖啡馆看看，也许有人需要帮助。</p></div>
+  <div id="hint" class="panel">按 E 交互</div>
+  <div id="crosshair"></div>
+  <div id="mobile">
+    <div id="stick"><div id="nub"></div></div><div id="runBtn">冲刺</div><div id="useBtn">交互</div><div id="jumpBtn">跳跃</div>
+  </div>
+</div>
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.180.0/build/three.module.js';
+
+const scene=new THREE.Scene();
+scene.fog=new THREE.FogExp2(0xbfd6df,0.0065);
+const camera=new THREE.PerspectiveCamera(64,innerWidth/innerHeight,.1,700);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,1.6));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.08;
+renderer.outputColorSpace=THREE.SRGBColorSpace; document.body.appendChild(renderer.domElement);
+
+// sky dome
+const skyGeo=new THREE.SphereGeometry(420,32,18);
+const skyMat=new THREE.ShaderMaterial({side:THREE.BackSide,uniforms:{top:{value:new THREE.Color(0x77bce8)},bottom:{value:new THREE.Color(0xeaf5f0)},offset:{value:25},exp:{value:.72}},vertexShader:`varying vec3 vWorldPosition;void main(){vec4 wp=modelMatrix*vec4(position,1.);vWorldPosition=wp.xyz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,fragmentShader:`uniform vec3 top;uniform vec3 bottom;uniform float offset;uniform float exp;varying vec3 vWorldPosition;void main(){float h=normalize(vWorldPosition+vec3(0.,offset,0.)).y;gl_FragColor=vec4(mix(bottom,top,max(pow(max(h,0.),exp),0.)),1.);}`});
+scene.add(new THREE.Mesh(skyGeo,skyMat));
+
+const hemi=new THREE.HemisphereLight(0xdff1ff,0x6a745c,2.2); scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xfff0d6,4.1); sun.position.set(-55,95,-38); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.left=-120; sun.shadow.camera.right=120; sun.shadow.camera.top=120; sun.shadow.camera.bottom=-120; sun.shadow.camera.far=260; scene.add(sun);
+
+const world=new THREE.Group(); scene.add(world);
+const obstacles=[]; const interactables=[]; const roofZones=[];
+function terrainHeight(x,z){return .55*Math.sin(x*.028)+.35*Math.cos(z*.036)+.18*Math.sin((x+z)*.06)}
+const terrainGeo=new THREE.PlaneGeometry(260,260,90,90); terrainGeo.rotateX(-Math.PI/2);
+const pos=terrainGeo.attributes.position; for(let i=0;i<pos.count;i++){const x=pos.getX(i),z=pos.getZ(i); let y=terrainHeight(x,z); const d=Math.hypot(x-34,z-38); if(d<25)y-=Math.max(0,(25-d))*.045; pos.setY(i,y)} terrainGeo.computeVertexNormals();
+const terrain=new THREE.Mesh(terrainGeo,new THREE.MeshStandardMaterial({color:0x6f965b,roughness:.96,metalness:0})); terrain.receiveShadow=true; world.add(terrain);
+
+// distant mountains
+for(let i=0;i<22;i++){const a=i/22*Math.PI*2;const r=145+Math.random()*25;const h=28+Math.random()*34;const m=new THREE.Mesh(new THREE.ConeGeometry(22+Math.random()*18,h,7),new THREE.MeshStandardMaterial({color:i%2?0x71856e:0x657a66,roughness:1}));m.position.set(Math.cos(a)*r,h/2-2,Math.sin(a)*r);m.rotation.y=Math.random()*Math.PI;m.receiveShadow=true;world.add(m)}
+
+// lake
+const lake=new THREE.Mesh(new THREE.CircleGeometry(24,80),new THREE.MeshPhysicalMaterial({color:0x4f9db6,roughness:.14,metalness:.05,transmission:.05,transparent:true,opacity:.86,clearcoat:1,clearcoatRoughness:.16}));lake.rotation.x=-Math.PI/2; lake.position.set(34,-.18,38); world.add(lake);
+const shore=new THREE.Mesh(new THREE.RingGeometry(24,27,80),new THREE.MeshStandardMaterial({color:0xc6b991,roughness:1}));shore.rotation.x=-Math.PI/2;shore.position.set(34,-.12,38);world.add(shore);
+
+function road(x,z,w,d,rot=0){const g=new THREE.BoxGeometry(w,.13,d);const m=new THREE.MeshStandardMaterial({color:0x777b78,roughness:.88});const o=new THREE.Mesh(g,m);o.position.set(x,terrainHeight(x,z)+.04,z);o.rotation.y=rot;o.receiveShadow=true;world.add(o);return o}
+road(0,0,9,150); road(-30,-14,70,8); road(28,15,65,8); road(-22,38,52,7,.12);
+function sidewalk(x,z,w,d){const o=new THREE.Mesh(new THREE.BoxGeometry(w,.12,d),new THREE.MeshStandardMaterial({color:0xb8b3a7,roughness:1}));o.position.set(x,terrainHeight(x,z)+.12,z);o.receiveShadow=true;world.add(o)}
+sidewalk(-7,0,3,150);sidewalk(7,0,3,150);
+
+const wallMat=new THREE.MeshStandardMaterial({color:0xe4d4be,roughness:.82});
+const trimMat=new THREE.MeshStandardMaterial({color:0xf4efe4,roughness:.72});
+const glassMat=new THREE.MeshPhysicalMaterial({color:0x96c7d9,roughness:.08,transmission:.25,transparent:true,opacity:.7,metalness:.08});
+function addBox(group,size,position,material=wallMat,cast=true){const m=new THREE.Mesh(new THREE.BoxGeometry(...size),material);m.position.set(...position);m.castShadow=cast;m.receiveShadow=true;group.add(m);return m}
+function makeHouse(x,z,rot=0,variant=0,enterable=false,label='住宅'){
+ const g=new THREE.Group(); g.position.set(x,terrainHeight(x,z),z);g.rotation.y=rot; const w=variant%2?12:10,d=variant%3?9:11,h=5.8;
+ const palette=[0xdfc7aa,0xd4d6c8,0xd9c0b7,0xc6d2d9]; const wm=new THREE.MeshStandardMaterial({color:palette[variant%palette.length],roughness:.83});
+ if(enterable){addBox(g,[w,h,.35],[0,h/2,-d/2],wm);addBox(g,[.35,h,d],[-w/2,h/2,0],wm);addBox(g,[.35,h,d],[w/2,h/2,0],wm);addBox(g,[w*.34,h,.35],[-w*.33,h/2,d/2],wm);addBox(g,[w*.34,h,.35],[w*.33,h/2,d/2],wm)}
+ else {addBox(g,[w,h,d],[0,h/2,0],wm);}
+ const roof=new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*.78,3.1,4),new THREE.MeshStandardMaterial({color:variant%2?0x76574b:0x5c625e,roughness:.9}));roof.position.y=h+1.45;roof.rotation.y=Math.PI/4;roof.castShadow=true;g.add(roof);
+ for(const sx of [-1,1]){const win=new THREE.Mesh(new THREE.BoxGeometry(2.0,1.6,.12),glassMat);win.position.set(sx*w*.25,3,d/2+.19);g.add(win)}
+ const door=addBox(g,[1.55,2.7,.18],[0,1.35,d/2+.22],new THREE.MeshStandardMaterial({color:0x6d4a35,roughness:.75}));
+ if(enterable){door.visible=false; const floor=addBox(g,[w-.6,.18,d-.6],[0,.1,0],new THREE.MeshStandardMaterial({color:0xc6aa82,roughness:.9}),false);addBox(g,[3,.7,1.4],[-2,.45,-1.5],new THREE.MeshStandardMaterial({color:0x94755b,roughness:.9}));addBox(g,[1.4,.45,1.4],[1.3,.27,-1.5],new THREE.MeshStandardMaterial({color:0xc9aa7b,roughness:.8}));}
+ world.add(g); const box=new THREE.Box3().setFromObject(g); obstacles.push({box,enterable}); if(enterable)roofZones.push({x,z,w,d,mesh:roof});
+ const yard=new THREE.Mesh(new THREE.BoxGeometry(w+6,.08,d+6),new THREE.MeshStandardMaterial({color:0x83a66a,roughness:1}));yard.position.set(x,terrainHeight(x,z)+.05,z);yard.rotation.y=rot;yard.receiveShadow=true;world.add(yard);world.remove(g);world.add(yard);world.add(g);
+ return g;
+}
+
+makeHouse(-20,-48,.08,0,false);makeHouse(20,-48,-.08,1,false);makeHouse(-23,-25,.04,2,false);makeHouse(23,-26,-.03,3,false);makeHouse(-24,13,.03,1,false);makeHouse(25,13,-.02,0,false);makeHouse(-26,38,.13,3,false);makeHouse(17,44,-.15,2,false);const playerHome=makeHouse(24,-3,-.03,2,true,'我的家');
+
+function makeCafe(x,z){const g=new THREE.Group();g.position.set(x,terrainHeight(x,z),z);const w=15,d=10,h=5.2;const m=new THREE.MeshStandardMaterial({color:0xb77956,roughness:.82});addBox(g,[w,h,.35],[0,h/2,-d/2],m);addBox(g,[.35,h,d],[-w/2,h/2,0],m);addBox(g,[.35,h,d],[w/2,h/2,0],m);addBox(g,[5,h,.35],[-5,h/2,d/2],m);addBox(g,[5,h,.35],[5,h/2,d/2],m);addBox(g,[w-.6,.18,d-.6],[0,.1,0],new THREE.MeshStandardMaterial({color:0x9e744d,roughness:.9}),false);const roof=addBox(g,[w+1,.35,d+1],[0,h+.2,0],new THREE.MeshStandardMaterial({color:0x504940,roughness:.95}));for(let i=-2;i<=2;i++)addBox(g,[1.8,1.5,.12],[i*2.4,3,-d/2-.2],glassMat,false);for(const x2 of [-4,0,4]){addBox(g,[2.2,.15,1.4],[x2,.9,0],new THREE.MeshStandardMaterial({color:0x694a36,roughness:.8}));for(const dz of [-1,1])addBox(g,[.5,.8,.5],[x2,.45,dz],new THREE.MeshStandardMaterial({color:0x4d514d,roughness:.9}))}world.add(g);roofZones.push({x,z,w,d,mesh:roof});return g}
+makeCafe(-21,16);
+
+// trees with instancing
+const trunkGeo=new THREE.CylinderGeometry(.18,.28,2.6,6), leafGeo=new THREE.IcosahedronGeometry(1.45,1);
+const trunks=new THREE.InstancedMesh(trunkGeo,new THREE.MeshStandardMaterial({color:0x6c4d32,roughness:1}),170);const leaves=new THREE.InstancedMesh(leafGeo,new THREE.MeshStandardMaterial({color:0x3e754a,roughness:1}),170);trunks.castShadow=true;leaves.castShadow=true;trunks.receiveShadow=true;leaves.receiveShadow=true;
+const dummy=new THREE.Object3D(); let ti=0; const avoid=[new THREE.Vector2(0,0),new THREE.Vector2(34,38),new THREE.Vector2(-21,16)];
+for(let tries=0;ti<170&&tries<2000;tries++){const x=(Math.random()-.5)*235,z=(Math.random()-.5)*235;if(Math.abs(x)<11||avoid.some(v=>v.distanceTo(new THREE.Vector2(x,z))<29))continue;const y=terrainHeight(x,z);const s=.7+Math.random()*.9;dummy.position.set(x,y+1.3*s,z);dummy.scale.set(s,s,s);dummy.rotation.y=Math.random()*6.28;dummy.updateMatrix();trunks.setMatrixAt(ti,dummy.matrix);dummy.position.y=y+3.1*s;dummy.updateMatrix();leaves.setMatrixAt(ti,dummy.matrix);ti++}trunks.count=ti;leaves.count=ti;world.add(trunks,leaves);
+
+// flowers / shrubs
+const flowerGeo=new THREE.SphereGeometry(.09,5,4);const flowerMat=new THREE.MeshStandardMaterial({color:0xe8c7d8,roughness:.9});const flowers=new THREE.InstancedMesh(flowerGeo,flowerMat,520);let fi=0;for(let i=0;i<520;i++){let x=(Math.random()-.5)*115,z=(Math.random()-.5)*115;if(Math.abs(x)<7||Math.hypot(x-34,z-38)<28){i--;continue}dummy.position.set(x,terrainHeight(x,z)+.12,z);const s=.65+Math.random()*1.5;dummy.scale.set(s,s,s);dummy.updateMatrix();flowers.setMatrixAt(fi++,dummy.matrix)}flowers.count=fi;world.add(flowers);
+
+// lamps
+for(let z=-58;z<65;z+=15){for(const x of [-7.8,7.8]){const g=new THREE.Group();addBox(g,[.16,3.4,.16],[0,1.7,0],new THREE.MeshStandardMaterial({color:0x3d4448,metalness:.6,roughness:.4}));const bulb=new THREE.Mesh(new THREE.SphereGeometry(.23,8,6),new THREE.MeshStandardMaterial({color:0xffe7b1,emissive:0xffce7a,emissiveIntensity:1.8}));bulb.position.y=3.4;g.add(bulb);g.position.set(x,terrainHeight(x,z),z);world.add(g)}}
+
+// player
+const player=new THREE.Group();const body=new THREE.Mesh(new THREE.CapsuleGeometry(.45,1.15,5,8),new THREE.MeshStandardMaterial({color:0x314c68,roughness:.72}));body.position.y=1.25;body.castShadow=true;player.add(body);const head=new THREE.Mesh(new THREE.SphereGeometry(.36,14,10),new THREE.MeshStandardMaterial({color:0xd6aa86,roughness:.82}));head.position.y=2.2;head.castShadow=true;player.add(head);player.position.set(4,terrainHeight(4,-60),-60);world.add(player);
+let yaw=0,pitch=-.18,velY=0,onGround=true,run=false;const keys={};let moveTouch={x:0,y:0};
+addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyE')tryInteract();if(e.code==='Space'&&onGround){velY=7;onGround=false}});addEventListener('keyup',e=>keys[e.code]=false);
+let locked=false;renderer.domElement.addEventListener('click',()=>{if(innerWidth>800)renderer.domElement.requestPointerLock()});document.addEventListener('pointerlockchange',()=>locked=document.pointerLockElement===renderer.domElement);document.addEventListener('mousemove',e=>{if(locked){yaw-=e.movementX*.0023;pitch=Math.max(-.72,Math.min(.36,pitch-e.movementY*.0017))}});
+
+// NPCs
+const npcs=[];
+function makeNPC(name,x,z,color,path){const g=new THREE.Group();const torso=new THREE.Mesh(new THREE.CapsuleGeometry(.34,.85,4,7),new THREE.MeshStandardMaterial({color,roughness:.75}));torso.position.y=1.15;torso.castShadow=true;g.add(torso);const h=new THREE.Mesh(new THREE.SphereGeometry(.29,12,8),new THREE.MeshStandardMaterial({color:0xc99572,roughness:.8}));h.position.y=1.93;h.castShadow=true;g.add(h);g.position.set(x,terrainHeight(x,z),z);world.add(g);const n={name,g,path,i:0,speed:.9+Math.random()*.5,quest:false};npcs.push(n);interactables.push({type:'npc',obj:g,data:n,radius:3.2});return n}
+const barista=makeNPC('咖啡馆老板',-16,19,0x9a4f3d,[[-16,19],[-24,22],[-18,14],[-16,19]]);barista.quest=true;
+makeNPC('林夏',6,-12,0x5a7a9d,[[6,-12],[6,15],[15,15],[15,-12]]);makeNPC('阿洛',-8,42,0x718c62,[[-8,42],[-25,42],[-25,31],[-8,31]]);makeNPC('米娅',17,-37,0x9b6f8b,[[17,-37],[8,-37],[8,-20],[17,-20]]);makeNPC('修远',32,17,0x7c6d55,[[32,17],[18,17],[18,30],[32,30]]);
+
+// quest camera prop
+const cameraProp=new THREE.Group();addBox(cameraProp,[.65,.42,.3],[0,.3,0],new THREE.MeshStandardMaterial({color:0x262626,metalness:.35,roughness:.38}));const lens=new THREE.Mesh(new THREE.CylinderGeometry(.17,.17,.2,16),new THREE.MeshStandardMaterial({color:0x233746,metalness:.4,roughness:.18}));lens.rotation.x=Math.PI/2;lens.position.set(0,.3,-.22);cameraProp.add(lens);cameraProp.position.set(47,terrainHeight(47,43),43);world.add(cameraProp);interactables.push({type:'camera',obj:cameraProp,radius:2.8});
+let quest=0;const questText=document.getElementById('questText');
+function setQuest(q){quest=q;if(q===0)questText.textContent='去咖啡馆看看，也许有人需要帮助。';if(q===1)questText.textContent='任务：去湖边找回咖啡馆老板遗失的相机。';if(q===2)questText.textContent='你找到了相机！把它交还给咖啡馆老板。';if(q===3)questText.textContent='任务完成：老板记住了你的帮助。继续探索小镇吧。'}
+function tryInteract(){let best=null,bd=99;for(const it of interactables){if(!it.obj.visible)continue;const d=player.position.distanceTo(it.obj.position);if(d<it.radius&&d<bd){best=it;bd=d}}if(!best)return;if(best.type==='npc'&&best.data===barista){if(quest===0){setQuest(1);toast('老板：我把相机落在湖边了，可以帮我找回来吗？')}else if(quest===2){setQuest(3);toast('老板：太感谢了！以后来咖啡馆，我请你喝咖啡。')}else toast(quest===1?'老板：应该就在湖边靠东的位置。':'老板：欢迎回来。')}else if(best.type==='npc'){toast(best.data.name+'：今天天气真不错，湖边很适合散步。')}else if(best.type==='camera'&&quest===1){best.obj.visible=false;setQuest(2);toast('已找到遗失的相机。')}}
+const hint=document.getElementById('hint');let toastTimer;function toast(t){hint.textContent=t;hint.style.opacity=1;clearTimeout(toastTimer);toastTimer=setTimeout(()=>hint.style.opacity=0,3300)}
+
+// mobile controls
+const stick=document.getElementById('stick'),nub=document.getElementById('nub');let stickId=null;function resetStick(){moveTouch.x=moveTouch.y=0;nub.style.transform='translate(0,0)'}stick.addEventListener('pointerdown',e=>{stickId=e.pointerId;stick.setPointerCapture(e.pointerId)});stick.addEventListener('pointermove',e=>{if(e.pointerId!==stickId)return;const r=stick.getBoundingClientRect(),dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2),l=Math.max(1,Math.hypot(dx,dy)),m=Math.min(35,l),nx=dx/l,ny=dy/l;moveTouch.x=nx*m/35;moveTouch.y=ny*m/35;nub.style.transform=`translate(${nx*m}px,${ny*m}px)`});stick.addEventListener('pointerup',()=>{stickId=null;resetStick()});document.getElementById('jumpBtn').onclick=()=>{if(onGround){velY=7;onGround=false}};document.getElementById('useBtn').onclick=tryInteract;document.getElementById('runBtn').onpointerdown=()=>run=true;document.getElementById('runBtn').onpointerup=()=>run=false;
+let lastTouchX=null;renderer.domElement.addEventListener('touchmove',e=>{if(e.touches.length&&e.touches[0].clientX>innerWidth*.42){const x=e.touches[0].clientX,y=e.touches[0].clientY;if(lastTouchX){yaw-=(x-lastTouchX.x)*.006;pitch=Math.max(-.72,Math.min(.36,pitch-(y-lastTouchX.y)*.004))}lastTouchX={x,y}}},{passive:true});renderer.domElement.addEventListener('touchend',()=>lastTouchX=null);
+
+function collides(p){if(Math.abs(p.x)>122||Math.abs(p.z)>122)return true;for(const o of obstacles){if(o.enterable)continue;const b=o.box;if(p.x>b.min.x-.4&&p.x<b.max.x+.4&&p.z>b.min.z-.4&&p.z<b.max.z+.4)return true}return false}
+const clock=new THREE.Clock();
+function updatePlayer(dt){run=run||keys.ShiftLeft||keys.ShiftRight;let f=(keys.KeyW?1:0)-(keys.KeyS?1:0)-moveTouch.y;let s=(keys.KeyD?1:0)-(keys.KeyA?1:0)+moveTouch.x;const mag=Math.hypot(f,s);if(mag>1){f/=mag;s/=mag}const speed=run?8.4:4.5;const fw=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));const rt=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));const delta=fw.multiplyScalar(-f*speed*dt).add(rt.multiplyScalar(s*speed*dt));const next=player.position.clone().add(delta);if(!collides(next)){player.position.x=next.x;player.position.z=next.z}velY-=18*dt;player.position.y+=velY*dt;const gy=terrainHeight(player.position.x,player.position.z);if(player.position.y<=gy){player.position.y=gy;velY=0;onGround=true}if(mag>.05){player.rotation.y=yaw+Math.PI;body.rotation.z=Math.sin(performance.now()*.012*(run?1.7:1))*.03}
+ run=false;
+ for(const z of roofZones){const dx=Math.abs(player.position.x-z.x),dz=Math.abs(player.position.z-z.z);z.mesh.visible=!(dx<z.w*.58&&dz<z.d*.58)}
+}
+function updateNPC(dt){for(const n of npcs){const [tx,tz]=n.path[n.i];const tgt=new THREE.Vector3(tx,terrainHeight(tx,tz),tz);const d=tgt.clone().sub(n.g.position);d.y=0;if(d.length()<.6){n.i=(n.i+1)%n.path.length;continue}d.normalize();n.g.position.addScaledVector(d,n.speed*dt);n.g.position.y=terrainHeight(n.g.position.x,n.g.position.z);n.g.rotation.y=Math.atan2(d.x,d.z);n.g.children[0].rotation.z=Math.sin(performance.now()*.008*n.speed)*.045}}
+function updateHint(){let near=false;for(const it of interactables){if(it.obj.visible&&player.position.distanceTo(it.obj.position)<it.radius){near=true;break}}if(near&&!toastTimer){hint.textContent=innerWidth>800?'按 E 交互':'点击“交互”';hint.style.opacity=1}else if(!near&&!toastTimer)hint.style.opacity=0}
+function updateCamera(dt){const dist=7.4;const desired=new THREE.Vector3(player.position.x+Math.sin(yaw)*Math.cos(pitch)*dist,player.position.y+2.7+Math.sin(-pitch)*dist*.55,player.position.z+Math.cos(yaw)*Math.cos(pitch)*dist);camera.position.lerp(desired,1-Math.pow(.001,dt));camera.lookAt(player.position.x,player.position.y+1.4,player.position.z)}
+function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.033);updatePlayer(dt);updateNPC(dt);updateCamera(dt);updateHint();const t=performance.now()*.001;lake.material.opacity=.82+Math.sin(t*.8)*.025;renderer.render(scene,camera)}
+animate();
+
+document.getElementById('enter').onclick=()=>{document.getElementById('start').style.display='none';toast('欢迎来到 AI Valley。先去咖啡馆看看吧。');if(innerWidth>800)renderer.domElement.requestPointerLock()};
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+</script>
+</body>
+</html>
